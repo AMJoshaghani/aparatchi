@@ -1,14 +1,14 @@
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
-/// Safety caps so a pattern/server that never actually 404s (e.g. a site
-/// that returns 200 for everything) can't make the probe loop forever.
+/// Safety caps so a pattern/server that never actually 404s
+/// can't make the probe loop forever.
 const MAX_SEASONS: i32 = 500;
 const MAX_EPISODES_PER_SEASON: i32 = 2000;
 
 /// Substitute season/episode numbers into a pattern. Both `#` (season) and
-/// `*` (episode) may appear more than once in the pattern — e.g.
-/// `http://example.com/S#/movie.S#E*.mkv` — every occurrence is replaced.
+/// `*` (episode) may appear more than once in the pattern. e.g.
+/// `http://example.com/S#/movie.S#E*.mkv` -> every occurrence is replaced.
 fn render(pattern: &str, season: i32, season_width: usize, episode: i32, ep_width: usize) -> String {
     let season_str = format!("{:0width$}", season, width = season_width.max(1));
     let ep_str = format!("{:0width$}", episode, width = ep_width.max(1));
@@ -68,7 +68,7 @@ fn probe_season_episodes<F: FnMut(i32, i32, bool)>(
 
 /// Discover a series' season/episode range automatically instead of asking
 /// for an end value: starting at `ep_start`, keep incrementing the episode
-/// number until one fails to resolve — that's the end of the season. If the
+/// number until one fails to resolve -> that's the end of the season. If the
 /// pattern also contains `#`, the same thing happens one season at a time
 /// starting at `season_start`, stopping as soon as a season's very first
 /// episode fails to verify. If the pattern has no `#`, only a single season
@@ -101,7 +101,7 @@ pub fn probe<F: FnMut(i32, i32, bool)>(
 
         if !multi_season || found == 0 {
             // Either this pattern only ever describes one season, or this
-            // season's first episode didn't verify — treat that as the
+            // season's first episode didn't verify -> treat that as the
             // "404" marking the end of the series' season range.
             break;
         }
@@ -119,7 +119,7 @@ pub fn probe<F: FnMut(i32, i32, bool)>(
     Ok(out)
 }
 
-/// Same auto-detection as [`probe`], but pinned to exactly one season —
+/// Same auto-detection as [`probe`], but pinned to exactly one season.
 /// used for adding a single new season (potentially with its own distinct
 /// link pattern) to an existing series.
 pub fn probe_season<F: FnMut(i32, i32, bool)>(

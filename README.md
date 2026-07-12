@@ -4,9 +4,9 @@ A desktop app (Rust + Slint) to track the movies/series you watch, play them in
 VLC, and resume exactly where you left off.
 
 ## Screenshot
-![main page](https://cdn.imgurl.ir/uploads/k20844_Screenshot_From_2026-07-12_18-26-10.png)
-![series page](https://cdn.imgurl.ir/uploads/l590172_Screenshot_From_2026-07-12_18-29-52.png)
-![adding page](https://cdn.imgurl.ir/uploads/o52924_Screenshot_From_2026-07-12_18-26-18.png)
+![main page](https://s6.imgcdn.dev/YFB6AM.png)
+![series page](https://s6.imgcdn.dev/YFBwy0.png)
+![adding page](https://s6.imgcdn.dev/YFBMXd.png)
 
 
 ## Features
@@ -88,6 +88,3 @@ src/models.rs           # Entry / Episode / EntryKind types
   as "reachable". Local file paths are checked with a plain existence check.
 - The "finished" threshold (90% watched → resume cleared) is a constant in
   `start_playback` in `src/main.rs` if you'd like to change it.
-
-## Disclaimer!
-This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such.

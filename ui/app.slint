@@ -297,6 +297,12 @@ component Sidebar inherits Rectangle {
         }
         if Backend.movies-expanded: VerticalLayout {
             spacing: 2px;
+            if Backend.movies.length == 0: Text {
+                text: "No movies yet.";
+                color: #777777;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
             for m in Backend.movies: SidebarEntry {
                 title: m.title;
                 active: Backend.selected-entry-id == m.id;
@@ -312,6 +318,12 @@ component Sidebar inherits Rectangle {
         }
         if Backend.series-expanded: VerticalLayout {
             spacing: 2px;
+            if Backend.series.length == 0: Text {
+                text: "No series yet.";
+                color: #777777;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
             for s in Backend.series: SidebarEntry {
                 title: s.title;
                 active: Backend.selected-entry-id == s.id;
@@ -709,7 +721,7 @@ component AddDialog inherits ModalCard {
                 Text { text: "Episode URL/path pattern (* = episode number, # = season number, either may repeat)"; color: #aaaaaa; font-size: 12px; wrap: word-wrap; }
                 LineEdit { text <=> Backend.pattern-link; placeholder-text: "http://example.com/S#/Show.S#E*.mkv"; }
                 Text {
-                    text: "Season and episode ranges are detected automatically.";
+                    text: "Season and episode ranges are detected automatically: numbers keep increasing until a link fails to resolve (404).";
                     color: #888888;
                     font-size: 11px;
                     wrap: word-wrap;

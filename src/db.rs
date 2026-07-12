@@ -39,7 +39,7 @@ pub fn open() -> Result<Connection> {
         );
         ",
     )?;
-    // Older databases predate the "finished" column — add it if missing so
+    // Older databases predate the "finished" column. add it if missing so
     // existing installs upgrade in place instead of failing.
     ensure_column(&conn, "entries", "finished", "finished INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "episodes", "finished", "finished INTEGER NOT NULL DEFAULT 0")?;
@@ -104,7 +104,7 @@ pub fn clear_last_played(conn: &Connection) -> Result<()> {
 }
 
 /// Path to the VLC binary the user configured in Settings. `None` means
-/// "not configured" — callers should fall back to auto-detection.
+/// "not configured" -> callers should fall back to auto-detection.
 pub fn get_vlc_path(conn: &Connection) -> Result<Option<String>> {
     Ok(conn
         .query_row("SELECT value FROM settings WHERE key = 'vlc_path'", [], |r| r.get(0))

@@ -38,3 +38,7 @@ winreg = "0.52"
 
 [build-dependencies]
 slint-build = "1.7"
+
+#[profile.release]
+#opt-level = "z"  # Optimize for size.
+#lto = true

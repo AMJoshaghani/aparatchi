@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod db;
 mod models;
 mod pattern;
@@ -40,11 +42,10 @@ fn format_duration(total_seconds: i64) -> String {
     }
 }
 
-/// "12:34 / 45:00" style progress readout, or empty if we don't know the
-/// runtime yet (nothing's been played, or VLC never reported a length).
-fn progress_string(resume_position: i64, duration: i64) -> String {
+fn progress_string(resume_position: i64, duration: i64, finished: bool) -> String {
     if duration > 0 {
-        format!("{} / {}", format_duration(resume_position), format_duration(duration))
+        let shown_pos = if finished { duration } else { resume_position };
+        format!("{} / {}", format_duration(shown_pos), format_duration(duration))
     } else {
         String::new()
     }
@@ -111,6 +112,17 @@ fn main() -> anyhow::Result<()> {
     let ui = MainWindow::new()?;
     refresh_sidebar(&app, &ui);
     refresh_last_played(&app, &ui);
+
+    // First run (or the setting was cleared): try to auto-detect VLC right
+    // away so playback works out of the box without a trip to Settings.
+    {
+        let conn = app.conn.lock().unwrap();
+        if db::get_vlc_path(&conn).ok().flatten().is_none() {
+            if let Some(detected) = vlc::detect_vlc() {
+                let _ = db::set_vlc_path(&conn, &detected);
+            }
+        }
+    }
 
     let backend = ui.global::<Backend>();
 
@@ -534,7 +546,7 @@ fn select_entry(app: &Arc<AppState>, ui: &MainWindow, id: i64, _kind: &str) {
         b.set_detail_watched(watched);
         if let Some(first) = episodes.first() {
             b.set_detail_link(first.link_or_path.clone().into());
-            b.set_detail_progress(progress_string(first.resume_position, first.duration).into());
+            b.set_detail_progress(progress_string(first.resume_position, first.duration, first.finished).into());
             b.set_detail_episode_description(first.description.clone().into());
             b.set_resume_enabled(first.resume_position > 0);
             b.set_play_enabled(!first.link_or_path.is_empty());
@@ -551,7 +563,7 @@ fn select_entry(app: &Arc<AppState>, ui: &MainWindow, id: i64, _kind: &str) {
         b.set_detail_link(entry.link_or_path.clone().into());
         b.set_detail_seasons(ModelRc::new(VecModel::from(Vec::<SeasonGroup>::new())));
         b.set_detail_watched(entry.finished);
-        b.set_detail_progress(progress_string(entry.resume_position, entry.duration).into());
+        b.set_detail_progress(progress_string(entry.resume_position, entry.duration, entry.finished).into());
         b.set_detail_episode_description("".into());
         b.set_resume_enabled(entry.resume_position > 0);
         b.set_play_enabled(!entry.link_or_path.is_empty());
@@ -574,7 +586,7 @@ fn select_episode(app: &Arc<AppState>, ui: &MainWindow, episode_id: i64) {
     let b = ui.global::<Backend>();
     b.set_detail_seasons(season_groups(&episodes, Some(episode_id)));
     b.set_detail_link(ep.link_or_path.clone().into());
-    b.set_detail_progress(progress_string(ep.resume_position, ep.duration).into());
+    b.set_detail_progress(progress_string(ep.resume_position, ep.duration, ep.finished).into());
     b.set_detail_episode_description(ep.description.clone().into());
     b.set_resume_enabled(ep.resume_position > 0);
     b.set_play_enabled(!ep.link_or_path.is_empty());
@@ -621,7 +633,7 @@ fn do_play(app: &Arc<AppState>, ui: &MainWindow, resume: bool) {
     start_playback(app.clone(), ui.as_weak(), target, start, vlc_path);
 }
 
-/// Triggered by the "▶ Resume" button on the entry page header. Unlike the
+/// Triggered by the "Resume" button on the entry page header. Unlike the
 /// per-episode Resume/Play buttons (which act on whatever's selected), this
 /// jumps straight to the "current" thing to watch: the entry itself for a
 /// movie, or the first not-yet-finished episode for a series (falling back
@@ -843,7 +855,7 @@ fn submit_add(app: &Arc<AppState>, ui: &MainWindow) {
     // Series: starting from the given season/episode numbers, keep
     // substituting increasing numbers into every "*"/"#" in the pattern and
     // verifying each generated link (network I/O) until one fails to
-    // resolve (404) — that's the end of the range, discovered automatically
+    // resolve (404) -> that's the end of the range, discovered automatically
     // for both episodes within a season and seasons within the series.
     let pattern_str = b.get_pattern_link().to_string();
     let season_start: i32 = b.get_pattern_season_start().to_string().trim().parse().unwrap_or(1);
@@ -905,7 +917,7 @@ fn submit_add(app: &Arc<AppState>, ui: &MainWindow) {
 }
 
 // ---------------------------------------------------------------------
-// Edit flow — entry title/description/link, or a single episode
+// Edit flow - entry title/description/link, or a single episode
 // ---------------------------------------------------------------------
 
 /// Always edits the whole entry (movie, or the series itself) currently
@@ -993,11 +1005,11 @@ fn submit_edit(app: &Arc<AppState>, ui: &MainWindow) {
 }
 
 // ---------------------------------------------------------------------
-// Delete flow — entry, episode, or whole season
+// Delete flow - entry, episode, or whole season
 // ---------------------------------------------------------------------
 
 /// Triggered by the "Delete" button on the entry detail header. Always
-/// targets the whole entry (movie, or the entire series) currently shown —
+/// targets the whole entry (movie, or the entire series) currently shown,
 /// even if an individual episode happens to be selected within it.
 fn request_delete_entry(app: &Arc<AppState>, ui: &MainWindow) {
     let entry_id = match &*app.selected.lock().unwrap() {

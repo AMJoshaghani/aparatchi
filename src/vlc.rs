@@ -44,7 +44,7 @@ fn random_password() -> String {
         .collect()
 }
 
-/// Best-effort search for an installed VLC binary — used to pre-fill the
+/// Best-effort search for an installed VLC binary -> used to pre-fill the
 /// Settings page, and as the fallback when no explicit path has been
 /// configured there. Windows and Linux/macOS use different strategies
 /// since there's no single convention shared across them.
