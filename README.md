@@ -12,8 +12,7 @@ VLC, and resume exactly where you left off.
 ## Features
 
 - **Detail pane**: shows description, the link/file path, and (for series) a
-  selectable list of episodes. **Play** and **Resume** buttons at the bottom
-  right — powered by SQLite (stores the last known playback position) and
+  selectable list of episodes. **Play** and **Resume** functionalities. powered by SQLite (stores the last known playback position) and
   VLC (reports actual position).
 - **Batch episode generation**: for a series, give a URL/path pattern with
   `*` standing in for the episode number and `#` as the season number (e.g.
@@ -39,12 +38,12 @@ HTTP interface turned on (a random local port + password each run), and:
   per-episode). If playback reached ≥90% of the file's length, the resume
   point is cleared instead (treated as "finished").
 
-This means resume works even if the user just closes the VLC window — no
+This means resume works even if the user just closes the VLC window. No
 special shutdown handling required.
 
 ## Requirements to build & run
 
-- Rust (stable, recent — `rustup` is easiest)
+- Rust (`rustup` is easiest)
 - VLC installed and it's binary recognizable. You can also manually change binary path in "Settings":
   - Linux: Install via preffered package manager (`apt`, `pacman`, etc.). Uses installed binary after auto-detection. Usually `/usr/bin/vlc`
   - macOS: Install via `brew install --cask vlc`. Would be the same spot as Linux.
