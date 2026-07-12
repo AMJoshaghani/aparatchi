@@ -88,3 +88,6 @@ src/models.rs           # Entry / Episode / EntryKind types
   as "reachable". Local file paths are checked with a plain existence check.
 - The "finished" threshold (90% watched → resume cleared) is a constant in
   `start_playback` in `src/main.rs` if you'd like to change it.
+
+## Disclaimer!
+This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such.
