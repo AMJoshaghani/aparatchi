@@ -1,0 +1,963 @@
+import { Button, ComboBox, LineEdit, TextEdit, ScrollView, CheckBox } from "std-widgets.slint";
+
+export struct EntryItem {
+    id: int,
+    title: string,
+}
+
+export struct EpisodeItem {
+    id: int,
+    label: string,
+    selected: bool,
+    finished: bool,
+}
+
+export struct SeasonGroup {
+    season: int,
+    label: string,
+    episodes: [EpisodeItem],
+}
+
+// Central data bridge between Rust and the UI.
+export global Backend {
+    // ---- sidebar ----
+    in property <[EntryItem]> movies: [];
+    in property <[EntryItem]> series: [];
+    in property <bool> movies-expanded: true;
+    in property <bool> series-expanded: true;
+    in property <int> selected-entry-id: -1;
+
+    // ---- detail pane ----
+    in property <bool> has-selection: false;
+    in property <string> detail-title: "";
+    in property <string> detail-kind: "movie"; // "movie" | "series"
+    in property <string> detail-description: "";
+    in property <string> detail-link: "";       // movie link/path, or selected episode link/path
+    in property <[SeasonGroup]> detail-seasons: [];
+    in property <bool> resume-enabled: false;
+    in property <bool> play-enabled: false;
+    in property <bool> top-resume-enabled: false;
+    in property <bool> detail-watched: false;
+    in property <string> detail-progress: "";
+    in property <string> detail-episode-description: "";
+    in property <string> status-text: "";
+
+    callback resume-entry();
+
+    // ---- last played (shown on the empty landing page) ----
+    in property <bool> has-last-played: false;
+    in property <string> last-played-label: "";
+    callback resume-last-played();
+
+    // ---- add dialog (new movie / new series) ----
+    in-out property <bool> add-dialog-open: false;
+    in-out property <string> form-title: "";
+    in-out property <string> form-description: "";
+    in-out property <string> form-link: "";
+    in-out property <string> form-type: "movie"; // movie | series
+    in-out property <string> pattern-link: "";
+    in-out property <string> pattern-season-start: "1";
+    in-out property <string> pattern-season-width: "2";
+    in-out property <string> pattern-start: "1";
+    in-out property <string> pattern-episode-width: "2";
+
+    // ---- edit dialog (shared between "edit entry" and "edit episode") ----
+    in-out property <bool> edit-dialog-open: false;
+    in-out property <string> edit-title: "";
+    in-out property <string> edit-description: "";
+    in-out property <string> edit-link: "";
+    in property <bool> edit-is-episode: false;
+    callback open-edit-entry-dialog();
+    callback open-edit-episode-dialog(int);
+    callback close-edit-dialog();
+    callback browse-edit-file();
+    callback submit-edit();
+
+    // ---- delete confirmation (entry, episode, or whole season) ----
+    in-out property <bool> confirm-dialog-open: false;
+    in property <string> confirm-message: "";
+    callback request-delete-entry();
+    callback request-delete-episode(int);
+    callback request-delete-season(int);
+    callback confirm-delete();
+    callback cancel-delete();
+
+    // ---- add episode dialog (single episode, added to an existing season) ----
+    in-out property <bool> add-episode-dialog-open: false;
+    in-out property <string> add-episode-season: "1";
+    in-out property <string> add-episode-number: "1";
+    in-out property <string> add-episode-title: "";
+    in-out property <string> add-episode-description: "";
+    in-out property <string> add-episode-link: "";
+    callback open-add-episode-dialog(int);
+    callback close-add-episode-dialog();
+    callback browse-add-episode-file();
+    callback submit-add-episode();
+
+    // ---- add season dialog (auto-detected episode range, own link pattern) ----
+    in-out property <bool> add-season-dialog-open: false;
+    in-out property <string> add-season-number: "1";
+    in-out property <string> add-season-width: "2";
+    in-out property <string> add-season-pattern: "";
+    in-out property <string> add-season-ep-start: "1";
+    in-out property <string> add-season-ep-width: "2";
+    callback open-add-season-dialog();
+    callback close-add-season-dialog();
+    callback submit-add-season();
+
+    // ---- settings dialog ----
+    in-out property <bool> settings-dialog-open: false;
+    in-out property <string> settings-vlc-path: "";
+    callback open-settings-dialog();
+    callback close-settings-dialog();
+    callback browse-settings-vlc();
+    callback detect-settings-vlc();
+    callback submit-settings();
+
+    callback toggle-movies();
+    callback toggle-series();
+    callback select-entry(int, string);
+    callback select-episode(int);
+    callback play();
+    callback resume();
+
+    callback open-add-dialog();
+    callback close-add-dialog();
+    callback browse-file();
+    callback submit-add();
+}
+
+// ----------------------------------------------------------------------
+// Small vector icons (no emoji / unicode symbols, so rendering is
+// consistent across platforms and fonts).
+// ----------------------------------------------------------------------
+
+// A filled triangle. Used both for "play"/"resume" actions (pointing right)
+// and, toggled via `pointing-down`, as an expand/collapse chevron. Avoids
+// any rotation transform so it works on every Slint element type.
+component TriangleIcon inherits Path {
+    in property <color> icon-color: white;
+    in property <bool> pointing-down: false;
+    width: 10px;
+    height: 10px;
+    fill: icon-color;
+    commands: root.pointing-down ? "M 0 0 L 10 0 L 5 10 Z" : "M 0 0 L 10 5 L 0 10 Z";
+}
+
+// An "x" drawn as two crossing diagonal strokes, used for delete/remove
+// actions. Drawn directly (no rotated rectangles) to avoid relying on
+// rotation support, which isn't available on every element.
+component CrossIcon inherits Path {
+    in property <color> icon-color: #995555;
+    width: 14px;
+    height: 14px;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M 1 1 L 13 13 M 13 1 L 1 13";
+}
+
+// A pencil, drawn as a diagonal shaft with an angled tip and a small point
+// mark, used for edit actions. Pure strokes (no fill, no rotation) to keep
+// it simple and portable.
+component PencilIcon inherits Path {
+    in property <color> icon-color: #999999;
+    width: 14px;
+    height: 14px;
+    fill: transparent;
+    stroke: icon-color;
+    stroke-width: 1.6px;
+    commands: "M 2 12 L 10 4 M 8 2 L 12 6 M 1 13 L 3 11";
+}
+
+// A plus sign, used for "add" actions.
+component PlusIcon inherits Rectangle {
+    in property <color> icon-color: white;
+    width: 12px;
+    height: 12px;
+    Rectangle {
+        width: 12px;
+        height: 2px;
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        background: root.icon-color;
+    }
+    Rectangle {
+        width: 2px;
+        height: 12px;
+        x: (parent.width - self.width) / 2;
+        y: 0px;
+        background: root.icon-color;
+    }
+}
+
+// Three stacked bars ("hamburger"), used for the settings entry point.
+component GearIcon inherits Rectangle {
+    in property <color> icon-color: #cccccc;
+    width: 16px;
+    height: 12px;
+    VerticalLayout {
+        spacing: 3px;
+        Rectangle { height: 2px; background: root.icon-color; }
+        Rectangle { height: 2px; background: root.icon-color; }
+        Rectangle { height: 2px; background: root.icon-color; }
+    }
+}
+
+component SidebarEntry inherits Rectangle {
+    in property <string> title;
+    in property <bool> active: false;
+    callback clicked();
+    height: 32px;
+    background: active ? #3d5afe : (touch.has-hover ? #333333 : transparent);
+    border-radius: 4px;
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 28px;
+        alignment: start;
+        Text {
+            text: root.title;
+            color: white;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component SectionHeader inherits Rectangle {
+    in property <string> label;
+    in property <bool> expanded;
+    callback clicked();
+    height: 30px;
+    TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 8px;
+        spacing: 8px;
+        Rectangle {
+            width: 10px;
+            TriangleIcon {
+                icon-color: #999999;
+                pointing-down: root.expanded;
+            }
+        }
+        Text {
+            text: root.label;
+            color: #dddddd;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component Sidebar inherits Rectangle {
+    width: 260px;
+    background: #1b1b1b;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            Rectangle {
+                width: 20px;
+                PlusIcon {
+                    icon-color: white;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+            Button {
+                text: "Add";
+                horizontal-stretch: 1;
+                clicked => { Backend.open-add-dialog(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Rectangle {
+                width: 20px;
+                GearIcon {
+                    icon-color: #cccccc;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+            Button {
+                text: "Settings";
+                horizontal-stretch: 1;
+                clicked => { Backend.open-settings-dialog(); }
+            }
+        }
+        Rectangle { height: 4px; }
+
+        SectionHeader {
+            label: "Movies";
+            expanded: Backend.movies-expanded;
+            clicked => { Backend.toggle-movies(); }
+        }
+        if Backend.movies-expanded: VerticalLayout {
+            spacing: 2px;
+            for m in Backend.movies: SidebarEntry {
+                title: m.title;
+                active: Backend.selected-entry-id == m.id;
+                clicked => { Backend.select-entry(m.id, "movie"); }
+            }
+        }
+
+        Rectangle { height: 4px; }
+        SectionHeader {
+            label: "Series";
+            expanded: Backend.series-expanded;
+            clicked => { Backend.toggle-series(); }
+        }
+        if Backend.series-expanded: VerticalLayout {
+            spacing: 2px;
+            for s in Backend.series: SidebarEntry {
+                title: s.title;
+                active: Backend.selected-entry-id == s.id;
+                clicked => { Backend.select-entry(s.id, "series"); }
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+    }
+}
+
+// A single node on the season timeline: a rail with a status circle (green
+// once finished, blue when it's the selected one, grey otherwise) plus the
+// episode label and small edit/delete controls.
+component TimelineEpisode inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> finished;
+    callback clicked();
+    callback edit();
+    callback delete();
+
+    height: 34px;
+    background: selected ? #2b3a80 : (touch.has-hover ? #262626 : transparent);
+    border-radius: 4px;
+
+    touch := TouchArea { clicked => { root.clicked(); } }
+
+    HorizontalLayout {
+        padding-right: 6px;
+        spacing: 6px;
+
+        Rectangle {
+            width: 26px;
+            Rectangle {
+                width: 2px;
+                height: parent.height;
+                x: (parent.width - self.width) / 2;
+                background: #444444;
+            }
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.finished ? #4caf50 : (root.selected ? #3d5afe : #666666);
+                border-width: root.selected ? 2px : 0px;
+                border-color: white;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: white;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+
+        Rectangle {
+            width: 22px;
+            height: 22px;
+            edit-touch := TouchArea { clicked => { root.edit(); } }
+            PencilIcon {
+                icon-color: edit-touch.has-hover ? #ffd27f : #999999;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+        Rectangle {
+            width: 22px;
+            height: 22px;
+            del-touch := TouchArea { clicked => { root.delete(); } }
+            CrossIcon {
+                icon-color: del-touch.has-hover ? #ff8888 : #995555;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+    }
+}
+
+component SeasonHeader inherits Rectangle {
+    in property <int> season;
+    in property <string> label;
+    callback add-episode();
+    callback delete-season();
+    height: 34px;
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.label;
+            color: white;
+            font-weight: 900;
+            font-size: 15px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Rectangle {
+            width: 18px;
+            PlusIcon {
+                icon-color: white;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+        Button { text: "Add episode"; clicked => { root.add-episode(); } }
+        Button { text: "Delete season"; clicked => { root.delete-season(); } }
+    }
+}
+
+component DetailPane inherits Rectangle {
+    background: #2b2b2b;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+
+        if !Backend.has-selection: Rectangle {
+            vertical-stretch: 1;
+            horizontal-stretch: 1;
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    if Backend.has-last-played: Button {
+                        text: "Resume: " + Backend.last-played-label;
+                        primary: true;
+                        clicked => { Backend.resume-last-played(); }
+                    }
+                    if !Backend.has-last-played: Text {
+                        text: "Select a movie or series from the sidebar, or add a new one.";
+                        color: #999999;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        if Backend.has-selection: VerticalLayout {
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    text: Backend.detail-title;
+                    color: white;
+                    font-size: 22px;
+                    font-weight: 700;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if Backend.detail-watched: Rectangle {
+                    background: #1e3a1e;
+                    border-radius: 4px;
+                    height: 24px;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        Text {
+                            text: "Watched";
+                            color: #7fdb7f;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Button {
+                    text: "Resume";
+                    primary: true;
+                    enabled: Backend.top-resume-enabled;
+                    clicked => { Backend.resume-entry(); }
+                }
+                Button {
+                    text: "Edit";
+                    clicked => { Backend.open-edit-entry-dialog(); }
+                }
+                Button {
+                    text: "Delete";
+                    clicked => { Backend.request-delete-entry(); }
+                }
+            }
+
+            Text {
+                text: Backend.detail-description;
+                color: #cccccc;
+                wrap: word-wrap;
+            }
+
+            if Backend.detail-kind == "movie": VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Link / path:";
+                    color: #888888;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    background: #1e1e1e;
+                    border-radius: 4px;
+                    height: 32px;
+                    HorizontalLayout {
+                        padding: 6px;
+                        Text {
+                            text: Backend.detail-link == "" ? "(none)" : Backend.detail-link;
+                            color: #aaddaa;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                if Backend.detail-progress != "": Text {
+                    text: "Progress: " + Backend.detail-progress;
+                    color: #888888;
+                    font-size: 12px;
+                }
+            }
+
+            if Backend.detail-kind == "series": VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text { text: "Seasons & episodes:"; color: #888888; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                    Rectangle {
+                        width: 18px;
+                        PlusIcon {
+                            icon-color: white;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                    Button { text: "Add season"; clicked => { Backend.open-add-season-dialog(); } }
+                }
+                ScrollView {
+                    height: 300px;
+                    VerticalLayout {
+                        spacing: 10px;
+                        for group in Backend.detail-seasons: VerticalLayout {
+                            spacing: 2px;
+                            SeasonHeader {
+                                season: group.season;
+                                label: group.label;
+                                add-episode => { Backend.open-add-episode-dialog(group.season); }
+                                delete-season => { Backend.request-delete-season(group.season); }
+                            }
+                            for e in group.episodes: TimelineEpisode {
+                                label: e.label;
+                                selected: e.selected;
+                                finished: e.finished;
+                                clicked => { Backend.select-episode(e.id); }
+                                edit => { Backend.open-edit-episode-dialog(e.id); }
+                                delete => { Backend.request-delete-episode(e.id); }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Selected episode link / path:";
+                    color: #888888;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    background: #1e1e1e;
+                    border-radius: 4px;
+                    height: 32px;
+                    HorizontalLayout {
+                        padding: 6px;
+                        Text {
+                            text: Backend.detail-link == "" ? "(none)" : Backend.detail-link;
+                            color: #aaddaa;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                if Backend.detail-progress != "": Text {
+                    text: "Progress: " + Backend.detail-progress;
+                    color: #888888;
+                    font-size: 12px;
+                }
+                if Backend.detail-episode-description != "": Text {
+                    text: Backend.detail-episode-description;
+                    color: #cccccc;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+
+            if Backend.status-text != "": Text {
+                text: Backend.status-text;
+                color: #ffcc66;
+                wrap: word-wrap;
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 10px;
+                Button {
+                    text: "Resume";
+                    enabled: Backend.resume-enabled;
+                    clicked => { Backend.resume(); }
+                }
+                Button {
+                    text: "Play";
+                    primary: true;
+                    enabled: Backend.play-enabled;
+                    clicked => { Backend.play(); }
+                }
+            }
+        }
+    }
+}
+
+component LabeledField inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> value <=> edit.text;
+    spacing: 4px;
+    Text { text: root.label; color: #aaaaaa; font-size: 12px; }
+    edit := LineEdit {}
+}
+
+// Shared "floating card over a dimmed backdrop" shell used by every dialog.
+// The card's size is capped to the available window size (minus a margin)
+// and its body sits in a ScrollView, so a dialog can never grow taller than
+// the window or push its Save/Cancel buttons off-screen with no way to
+// reach them, regardless of window size or how many fields it has.
+component ModalCard inherits Rectangle {
+    in property <bool> dialog-visible: false;
+    in property <length> card-width: 460px;
+    in property <length> max-card-height: 520px;
+    visible: root.dialog-visible;
+    width: 100%;
+    height: 100%;
+    background: #000000aa;
+
+    TouchArea {} // swallow clicks behind the card
+
+    Rectangle {
+        width: min(root.card-width, parent.width - 40px);
+        height: min(root.max-card-height, parent.height - 40px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #262626;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #444444;
+        clip: true;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+            @children
+        }
+    }
+}
+
+component AddDialog inherits ModalCard {
+    dialog-visible: Backend.add-dialog-open;
+    card-width: 480px;
+    max-card-height: 640px;
+
+    Text { text: "Add movie / series"; color: white; font-size: 18px; font-weight: 700; }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 10px;
+
+            Text { text: "Type"; color: #aaaaaa; font-size: 12px; }
+            ComboBox {
+                model: ["movie", "series"];
+                current-value: Backend.form-type;
+                selected(v) => { Backend.form-type = v; }
+            }
+
+            LabeledField { label: "Title"; value <=> Backend.form-title; }
+            LabeledField { label: "Description"; value <=> Backend.form-description; }
+
+            if Backend.form-type == "movie": VerticalLayout {
+                spacing: 4px;
+                Text { text: "File path or URL"; color: #aaaaaa; font-size: 12px; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit { text <=> Backend.form-link; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => { Backend.browse-file(); } }
+                }
+            }
+
+            if Backend.form-type == "series": VerticalLayout {
+                spacing: 6px;
+                Text { text: "Episode URL/path pattern (* = episode number, # = season number, either may repeat)"; color: #aaaaaa; font-size: 12px; wrap: word-wrap; }
+                LineEdit { text <=> Backend.pattern-link; placeholder-text: "http://example.com/S#/Show.S#E*.mkv"; }
+                Text {
+                    text: "Season and episode ranges are detected automatically.";
+                    color: #888888;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+
+                Text { text: "Starting season"; color: #888888; font-size: 11px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout { spacing: 2px; Text { text: "Season #"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.pattern-season-start; } }
+                    VerticalLayout { spacing: 2px; Text { text: "Digits"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.pattern-season-width; } }
+                }
+
+                Text { text: "Starting episode"; color: #888888; font-size: 11px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout { spacing: 2px; Text { text: "Episode #"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.pattern-start; } }
+                    VerticalLayout { spacing: 2px; Text { text: "Digits"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.pattern-episode-width; } }
+                }
+            }
+
+            if Backend.status-text != "": Text {
+                text: Backend.status-text;
+                color: #ffcc66;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.close-add-dialog(); } }
+        Button { text: "Add"; primary: true; clicked => { Backend.submit-add(); } }
+    }
+}
+
+component EditDialog inherits ModalCard {
+    dialog-visible: Backend.edit-dialog-open;
+    card-width: 460px;
+    max-card-height: 420px;
+
+    Text {
+        text: Backend.edit-is-episode ? "Edit episode" : "Edit title";
+        color: white;
+        font-size: 18px;
+        font-weight: 700;
+    }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 10px;
+            LabeledField { label: "Title"; value <=> Backend.edit-title; }
+            LabeledField { label: Backend.edit-is-episode ? "Description (optional)" : "Description"; value <=> Backend.edit-description; }
+
+            Text { text: "Link / path"; color: #aaaaaa; font-size: 12px; }
+            HorizontalLayout {
+                spacing: 6px;
+                LineEdit { text <=> Backend.edit-link; horizontal-stretch: 1; }
+                Button { text: "Browse"; clicked => { Backend.browse-edit-file(); } }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.close-edit-dialog(); } }
+        Button { text: "Save"; primary: true; clicked => { Backend.submit-edit(); } }
+    }
+}
+
+component ConfirmDialog inherits ModalCard {
+    dialog-visible: Backend.confirm-dialog-open;
+    card-width: 360px;
+    max-card-height: 220px;
+
+    ScrollView {
+        vertical-stretch: 1;
+        Text {
+            text: Backend.confirm-message;
+            color: white;
+            wrap: word-wrap;
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.cancel-delete(); } }
+        Button { text: "Delete"; primary: true; clicked => { Backend.confirm-delete(); } }
+    }
+}
+
+component AddEpisodeDialog inherits ModalCard {
+    dialog-visible: Backend.add-episode-dialog-open;
+    card-width: 420px;
+    max-card-height: 460px;
+
+    Text { text: "Add episode"; color: white; font-size: 18px; font-weight: 700; }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 10px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout { spacing: 2px; Text { text: "Season"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-episode-season; } }
+                VerticalLayout { spacing: 2px; Text { text: "Episode"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-episode-number; } }
+            }
+
+            LabeledField { label: "Title (optional)"; value <=> Backend.add-episode-title; }
+            LabeledField { label: "Description (optional)"; value <=> Backend.add-episode-description; }
+
+            Text { text: "File path or URL"; color: #aaaaaa; font-size: 12px; }
+            HorizontalLayout {
+                spacing: 6px;
+                LineEdit { text <=> Backend.add-episode-link; horizontal-stretch: 1; }
+                Button { text: "Browse"; clicked => { Backend.browse-add-episode-file(); } }
+            }
+
+            if Backend.status-text != "": Text {
+                text: Backend.status-text;
+                color: #ffcc66;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.close-add-episode-dialog(); } }
+        Button { text: "Add"; primary: true; clicked => { Backend.submit-add-episode(); } }
+    }
+}
+
+component AddSeasonDialog inherits ModalCard {
+    dialog-visible: Backend.add-season-dialog-open;
+    card-width: 460px;
+    max-card-height: 520px;
+
+    Text { text: "Add season"; color: white; font-size: 18px; font-weight: 700; }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 10px;
+
+            Text {
+                text: "This season can use its own link pattern (# = season number if you want it substituted, * = episode number). The episode range is auto-detected the same way, stopping at the first link that fails.";
+                color: #888888;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout { spacing: 2px; Text { text: "Season #"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-season-number; } }
+                VerticalLayout { spacing: 2px; Text { text: "Digits"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-season-width; } }
+            }
+
+            Text { text: "Link pattern"; color: #aaaaaa; font-size: 12px; }
+            LineEdit { text <=> Backend.add-season-pattern; placeholder-text: "http://example.com/S#/Show.S#E*.mkv"; }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout { spacing: 2px; Text { text: "Starting episode"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-season-ep-start; } }
+                VerticalLayout { spacing: 2px; Text { text: "Digits"; color: #888888; font-size: 11px; } LineEdit { text <=> Backend.add-season-ep-width; } }
+            }
+
+            if Backend.status-text != "": Text {
+                text: Backend.status-text;
+                color: #ffcc66;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.close-add-season-dialog(); } }
+        Button { text: "Add"; primary: true; clicked => { Backend.submit-add-season(); } }
+    }
+}
+
+component SettingsDialog inherits ModalCard {
+    dialog-visible: Backend.settings-dialog-open;
+    card-width: 480px;
+    max-card-height: 340px;
+
+    Text { text: "Settings"; color: white; font-size: 18px; font-weight: 700; }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 10px;
+
+            Text { text: "VLC binary"; color: #aaaaaa; font-size: 12px; }
+            Text {
+                text: "Path to the VLC executable used for playback. Leave blank to let the OS resolve \"vlc\" (or \"vlc.exe\" on Windows) from PATH.";
+                color: #888888;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                LineEdit { text <=> Backend.settings-vlc-path; horizontal-stretch: 1; placeholder-text: "vlc"; }
+                Button { text: "Browse"; clicked => { Backend.browse-settings-vlc(); } }
+            }
+            HorizontalLayout {
+                Button { text: "Detect automatically"; clicked => { Backend.detect-settings-vlc(); } }
+            }
+
+            if Backend.status-text != "": Text {
+                text: Backend.status-text;
+                color: #ffcc66;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: end;
+        spacing: 10px;
+        Button { text: "Cancel"; clicked => { Backend.close-settings-dialog(); } }
+        Button { text: "Save"; primary: true; clicked => { Backend.submit-settings(); } }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Aparatchi";
+    icon: @image-url("icon.png");
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    background: #202020;
+
+    HorizontalLayout {
+        Sidebar {}
+        DetailPane { horizontal-stretch: 1; }
+    }
+
+    AddDialog {}
+    EditDialog {}
+    ConfirmDialog {}
+    AddEpisodeDialog {}
+    AddSeasonDialog {}
+    SettingsDialog {}
+}
