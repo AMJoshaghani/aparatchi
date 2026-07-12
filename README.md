@@ -79,15 +79,5 @@ src/pattern.rs          # "*" pattern expansion + link/file verification
 src/models.rs           # Entry / Episode / EntryKind types
 ```
 
-## Notes / things you may want to tweak
-
-- Episode "titles" default to `Episode <n>`; edit any episode's title from
-  the entry page (select it, then hit Edit).
-- Verification of `http(s)://` links does a `HEAD` request with a 6s
-  timeout; some servers reject `HEAD`, so a `405` response is still counted
-  as "reachable". Local file paths are checked with a plain existence check.
-- The "finished" threshold (90% watched → resume cleared) is a constant in
-  `start_playback` in `src/main.rs` if you'd like to change it.
-
 ## Disclaimer!
 This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such.
