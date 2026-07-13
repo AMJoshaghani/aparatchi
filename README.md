@@ -21,13 +21,12 @@ VLC, and resume exactly where you left off.
   check for local paths) before saving.
 - **Edit** button on each entry's page to update the title/description/link
   (or, when a specific episode is selected, that episode's title/link).
+- **Search** search is available on all series & movies with recently added, recently watched and "A-Z" filters.
+- **Bulk Management** bulk of episodes and seasons can be managed with ease, and re-probing (searching for episodes and seasons in URL) is available.
 
-## How playback + resume actually works
+## How playback and resume works
 
-Slint doesn't have a built-in way to embed a video surface, and hand-rolling
-libvlc window-handle embedding is fragile across Linux/macOS/Windows. Instead,
-the app launches the real `vlc` binary as a child process with its built-in
-HTTP interface turned on (a random local port + password each run), and:
+Using VLC accounts for the multiplatform fragility across Linux/Windows/Mac and enables powerful customizations (not to mention that VLC really rocks and this is enough reason to use it). The app launches the real `vlc` binary as a child process with its built-in HTTP interface turned on (a random local port + password each run), and:
 
 - **Play** launches VLC at position 0.
 - **Resume** launches VLC with `--start-time=<seconds>` set to the last saved
