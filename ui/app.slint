@@ -487,7 +487,7 @@ component TimelineEpisode inherits Rectangle {
             edit-touch := TouchArea { clicked => { root.edit(); } }
             PencilIcon {
                 icon-color: edit-touch.has-hover ? #ffd27f : #999999;
-                x: (parent.width - self.width) / 0.8;
+                x: (parent.width - self.width) / 10;
                 y: (parent.height - self.height) / 0.8;
             }
         }
@@ -497,7 +497,7 @@ component TimelineEpisode inherits Rectangle {
             del-touch := TouchArea { clicked => { root.delete(); } }
             CrossIcon {
                 icon-color: del-touch.has-hover ? #ff8888 : #995555;
-                x: (parent.width - self.width) / 0.8;
+                x: (parent.width - self.width) / 10;
                 y: (parent.height - self.height) / 0.8;
             }
         }
@@ -535,6 +535,7 @@ component DetailPane inherits Rectangle {
         spacing: 12px;
 
         if !Backend.has-selection: Rectangle {
+            width: 100%;
             vertical-stretch: 1;
             horizontal-stretch: 1;
             VerticalLayout {
@@ -544,40 +545,46 @@ component DetailPane inherits Rectangle {
                     alignment: center;
                     horizontal-stretch: 1;
 
-                    if Backend.has-last-played: Button {
-                        text: "Resume: " + Backend.last-played-label;
-                        primary: true;
-                        clicked => { Backend.resume-last-played(); }
-                    }
-                    if !Backend.has-last-played: Text {
-                        text: "Select a movie or series from the sidebar, or add a new one.";
-                        color: #999999;
-                        horizontal-alignment: center;
-                    }
-                }
-                if Backend.continue-watching.length > 0: VerticalLayout {
-                    spacing: 6px;
-                    Text {
-                        text: "Continue watching";
-                        color: #888888;
-                        font-size: 12px;
-                        horizontal-alignment: center;
-                    }
-                    for item in Backend.continue-watching: Rectangle {
-                        width: 280px;
-                        height: 32px;
-                        background: touch.has-hover ? #333333 : #262626;
-                        border-radius: 4px;
-                        touch := TouchArea { clicked => { Backend.select-entry(item.id, item.kind); } }
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
+                    VerticalLayout {
+                        if Backend.has-last-played: Button {
+                            text: "Resume: " + Backend.last-played-label;
+                            primary: true;
+                            clicked => { Backend.resume-last-played(); }
+                        }
+                        if !Backend.has-last-played: Text {
+                            text: "Select a movie or series from the sidebar, or add a new one.";
+                            color: #999999;
+                            horizontal-alignment: center;
+                        }
+                        Rectangle {
+                            height: 12px;
+                        }
+                        if Backend.continue-watching.length > 0: VerticalLayout {
+                            spacing: 10px;
                             Text {
-                                text: item.title;
-                                color: white;
-                                vertical-alignment: center;
-                                overflow: elide;
-                                horizontal-stretch: 1;
+                                text: "Continue watching";
+                                color: #888888;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                            }
+                            for item in Backend.continue-watching: Rectangle {
+                                width: 280px;
+                                height: 32px;
+                                background: touch.has-hover ? #333333 : #262626;
+                                border-radius: 4px;
+                                touch := TouchArea { clicked => { Backend.select-entry(item.id, item.kind); } }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    Text {
+                                        text: item.title;
+                                        color: white;
+                                        vertical-alignment: center;
+                                        horizontal-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
                             }
                         }
                     }
@@ -604,8 +611,8 @@ component DetailPane inherits Rectangle {
             VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: 12px;
-                min-height: 665px;
-                max-height: 665px;
+                min-height: 685px;
+                max-height: 685px;
                 HorizontalLayout {
                     spacing: 10px;
                     Text {
@@ -746,8 +753,8 @@ component DetailPane inherits Rectangle {
                 }
                 ScrollView {
                     vertical-stretch: 1;
-                    min-height: 385px;
-                    max-height: 385px;
+                    min-height: 365px;
+                    max-height: 365px;
 
                     VerticalLayout {
                         spacing: 10px;
@@ -814,8 +821,8 @@ component DetailPane inherits Rectangle {
                 }
             }
 
-            if Backend.status-text != "": Text {
-                text: Backend.status-text;
+            Text {
+                text: Backend.status-text != "" ? Backend.status-text : " ";
                 color: #ffcc66;
                 wrap: word-wrap;
             }
@@ -1227,7 +1234,7 @@ export component MainWindow inherits Window {
     title: "Aparatchi";
     icon: @image-url("icon.png");
     width: 1100px;
-    height: 700px;
+    height: 720px;
     background: #202020;
 
     // Shortcuts for getting around faster:
