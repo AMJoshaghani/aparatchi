@@ -1,8 +1,9 @@
 [package]
 name = "aparatchi"
-version = "0.1.0"
+version = "0.1.4"
 edition = "2021"
 description = "Local movie/series watchlist manager with VLC playback + resume support"
+authors = ["Amir M. Joshaghani"]
 
 [[bin]]
 name = "aparatchi"
@@ -12,10 +13,10 @@ path = "src/main.rs"
 # UI toolkit
 slint = "1.7"
 
-# SQLite storage. "bundled" compiles sqlite3 in, so no system libsqlite3 is required.
+# SQLite storage.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
-# Native "open file" dialog used by the Add/Edit forms.
+# Native "open file" dialog.
 rfd = "0.14"
 
 # Used to talk to VLC's built-in HTTP interface (play/pause/seek/status) and to
@@ -31,14 +32,12 @@ directories = "5"
 anyhow = "1"
 rand = "0.8"
 
-# Windows registry lookup, used only to auto-detect where VLC installed
-# itself (SOFTWARE\VideoLAN\VLC). Not compiled in on other platforms.
+# Decoding user-picked poster images and generating resized posters/thumbnails.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+# Windows registry lookup.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
 [build-dependencies]
 slint-build = "1.7"
-
-#[profile.release]
-#opt-level = "z"  # Optimize for size.
-#lto = true

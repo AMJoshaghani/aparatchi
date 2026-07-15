@@ -1,12 +1,20 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::path::PathBuf;
 
 use crate::models::{Entry, EntryKind, Episode};
 
-pub fn open() -> Result<Connection> {
-    let dir = directories::ProjectDirs::from("com", "local", "aparatchi")
+// Where the app keeps its data: the sqlite database lives directly here,
+// and generated poster/thumbnail images live one level down in a
+// `posters/` subfolder.
+pub fn data_dir() -> PathBuf {
+    directories::ProjectDirs::from("com", "local", "aparatchi")
         .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+pub fn open() -> Result<Connection> {
+    let dir = data_dir();
     std::fs::create_dir_all(&dir)?;
     let db_path = dir.join("movies.db");
     let conn = Connection::open(db_path)?;
@@ -37,12 +45,23 @@ pub fn open() -> Result<Connection> {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS season_patterns (
+            entry_id     INTEGER NOT NULL,
+            season       INTEGER NOT NULL,
+            pattern      TEXT NOT NULL,
+            season_width INTEGER NOT NULL DEFAULT 2,
+            ep_width     INTEGER NOT NULL DEFAULT 2,
+            PRIMARY KEY (entry_id, season)
+        );
         ",
     )?;
-    // Older databases predate the "finished" column. add it if missing so
-    // existing installs upgrade in place instead of failing.
+    // Databases from older versions of the app won't have this column yet,
+    // so we add it if it's missing. That way existing installs just upgrade
+    // in place instead of crashing on startup.
     ensure_column(&conn, "entries", "finished", "finished INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "episodes", "finished", "finished INTEGER NOT NULL DEFAULT 0")?;
+    // Needed for the "Recently watched" sort option.
+    ensure_column(&conn, "entries", "last_watched_at", "last_watched_at INTEGER NOT NULL DEFAULT 0")?;
     Ok(conn)
 }
 
@@ -57,8 +76,8 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, add_column_ddl: &
     Ok(())
 }
 
-/// What the user last played, so the UI can offer a one-click "Resume" on
-/// the empty landing page even after restarting the app.
+// Whatever the user last played - lets the landing page offer a one-click
+// "Resume" even after the app's been restarted.
 pub struct LastPlayed {
     pub kind: EntryKind,
     pub entry_id: i64,
@@ -103,8 +122,9 @@ pub fn clear_last_played(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Path to the VLC binary the user configured in Settings. `None` means
-/// "not configured" -> callers should fall back to auto-detection.
+// The VLC path the user set in Settings, if any. `None` just means
+// "nobody's configured this yet" - whoever calls this should fall back to
+// auto-detection in that case.
 pub fn get_vlc_path(conn: &Connection) -> Result<Option<String>> {
     Ok(conn
         .query_row("SELECT value FROM settings WHERE key = 'vlc_path'", [], |r| r.get(0))
@@ -120,7 +140,25 @@ pub fn set_vlc_path(conn: &Connection, path: &str) -> Result<()> {
     Ok(())
 }
 
-const ENTRY_COLUMNS: &str = "id, title, kind, description, link_or_path, resume_position, duration, finished";
+// The subtitle language the user prefers ("eng", "fas", whatever), which
+// gets passed to VLC via `--sub-language`. Empty/`None` just means we
+// don't ask VLC for anything specific.
+pub fn get_subtitle_lang(conn: &Connection) -> Result<Option<String>> {
+    Ok(conn
+        .query_row("SELECT value FROM settings WHERE key = 'subtitle_lang'", [], |r| r.get(0))
+        .optional()?)
+}
+
+pub fn set_subtitle_lang(conn: &Connection, lang: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('subtitle_lang', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![lang],
+    )?;
+    Ok(())
+}
+
+const ENTRY_COLUMNS: &str = "id, title, kind, description, link_or_path, resume_position, duration, finished, last_watched_at";
 const EPISODE_COLUMNS: &str =
     "id, entry_id, season, episode, title, description, link_or_path, resume_position, duration, finished";
 
@@ -147,7 +185,19 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
         resume_position: row.get(5)?,
         duration: row.get(6)?,
         finished: row.get::<_, i64>(7)? != 0,
+        last_watched_at: row.get(8)?,
     })
+}
+
+// Stamps this entry with "right now" as its last-watched time, for the
+// "Recently watched" sort. We lean on SQLite's own clock here so there's no
+// need to pull in a separate time crate just for this.
+pub fn touch_last_watched(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE entries SET last_watched_at = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
 }
 
 pub fn insert_entry(
@@ -186,8 +236,9 @@ pub fn update_entry_resume(conn: &Connection, id: i64, position: i64, duration: 
     Ok(())
 }
 
-/// Deletes an entry (movie or series). Episodes belonging to a series are
-/// removed automatically via the `ON DELETE CASCADE` foreign key.
+// Deletes an entry - movie or series. If it's a series, its episodes get
+// swept away automatically thanks to the `ON DELETE CASCADE` foreign key,
+// so there's nothing extra to clean up here.
 pub fn delete_entry(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
     Ok(())
@@ -206,8 +257,9 @@ pub fn get_episode(conn: &Connection, id: i64) -> Result<Episode> {
     Ok(stmt.query_row(params![id], row_to_episode)?)
 }
 
-/// First episode (in season/episode order) strictly after the given one.
-/// Used to auto-advance the "current" episode once one is marked finished.
+// The next episode after the given one, in season/episode order. This is
+// what lets us auto-advance to the "current" episode once one gets marked
+// finished.
 pub fn next_episode(conn: &Connection, entry_id: i64, after_season: i32, after_episode: i32) -> Result<Option<Episode>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {EPISODE_COLUMNS} FROM episodes
@@ -219,7 +271,7 @@ pub fn next_episode(conn: &Connection, entry_id: i64, after_season: i32, after_e
         .optional()?)
 }
 
-/// The first not-yet-finished episode, in season/episode order.
+// The earliest episode that isn't finished yet, in season/episode order.
 pub fn first_unfinished_episode(conn: &Connection, entry_id: i64) -> Result<Option<Episode>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {EPISODE_COLUMNS} FROM episodes WHERE entry_id = ?1 AND finished = 0 ORDER BY season, episode LIMIT 1"
@@ -227,7 +279,7 @@ pub fn first_unfinished_episode(conn: &Connection, entry_id: i64) -> Result<Opti
     Ok(stmt.query_row(params![entry_id], row_to_episode).optional()?)
 }
 
-/// The very last episode (in season/episode order), regardless of status.
+// Whatever the last episode is, in season/episode order - finished or not.
 pub fn last_episode(conn: &Connection, entry_id: i64) -> Result<Option<Episode>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {EPISODE_COLUMNS} FROM episodes WHERE entry_id = ?1 ORDER BY season DESC, episode DESC LIMIT 1"
@@ -235,9 +287,9 @@ pub fn last_episode(conn: &Connection, entry_id: i64) -> Result<Option<Episode>>
     Ok(stmt.query_row(params![entry_id], row_to_episode).optional()?)
 }
 
-/// The episode a "Resume"/"Continue watching" action should land on: the
-/// first unfinished one, or the last episode if everything's been finished
-/// (or there's only one to begin with).
+// Figures out where a "Resume"/"Continue watching" action should actually
+// land: the first unfinished episode, or if everything's already been
+// watched (or there's just one episode total), the last one.
 pub fn current_episode(conn: &Connection, entry_id: i64) -> Result<Option<Episode>> {
     if let Some(ep) = first_unfinished_episode(conn, entry_id)? {
         return Ok(Some(ep));
@@ -297,8 +349,45 @@ pub fn delete_episode(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Deletes an entire season (all its episodes) from a series.
+// Wipes out an entire season - every episode in it - from a series.
 pub fn delete_season(conn: &Connection, entry_id: i64, season: i32) -> Result<()> {
     conn.execute("DELETE FROM episodes WHERE entry_id = ?1 AND season = ?2", params![entry_id, season])?;
+    conn.execute(
+        "DELETE FROM season_patterns WHERE entry_id = ?1 AND season = ?2",
+        params![entry_id, season],
+    )?;
     Ok(())
+}
+
+// Remembers the link pattern (and digit widths) that was used to
+// auto-detect a season's episodes. That way "Re-probe" can go find newly
+// added episodes later without making the user type the pattern out again.
+pub fn set_season_pattern(
+    conn: &Connection,
+    entry_id: i64,
+    season: i32,
+    pattern: &str,
+    season_width: i32,
+    ep_width: i32,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO season_patterns (entry_id, season, pattern, season_width, ep_width) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(entry_id, season) DO UPDATE SET
+            pattern = excluded.pattern, season_width = excluded.season_width, ep_width = excluded.ep_width",
+        params![entry_id, season, pattern, season_width, ep_width],
+    )?;
+    Ok(())
+}
+
+// Whatever pattern/season-width/episode-width was saved for this season,
+// if anything. `None` just means the season was added by hand, so there's
+// no pattern to re-probe with.
+pub fn get_season_pattern(conn: &Connection, entry_id: i64, season: i32) -> Result<Option<(String, i32, i32)>> {
+    Ok(conn
+        .query_row(
+            "SELECT pattern, season_width, ep_width FROM season_patterns WHERE entry_id = ?1 AND season = ?2",
+            params![entry_id, season],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?)
 }
