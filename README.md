@@ -6,7 +6,7 @@ VLC, and resume exactly where you left off.
 ## Screenshot
 ![main page](https://s6.imgcdn.dev/YFdaFV.png)
 ![series page](https://s6.imgcdn.dev/YFd70o.png)
-![adding page](https://s6.imgcdn.dev/YFBMXd.png)
+![adding page](https://s6.imgcdn.dev/YFdrTg.png)
 
 
 ## Features
