@@ -78,4 +78,4 @@ src/models.rs           # Entry / Episode / EntryKind types
 ```
 
 ## Disclaimer!
-This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such.
+This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such. The links and examples in the screenshots are fabricated.
