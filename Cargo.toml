@@ -2,7 +2,7 @@
 name = "aparatchi"
 version = "0.1.4"
 edition = "2021"
-description = "Local movie/series watchlist manager with VLC playback + resume support"
+description = "Local movie/series watchlist manager with VLC playback & resume support"
 authors = ["Amir M. Joshaghani"]
 
 [[bin]]
@@ -41,3 +41,8 @@ winreg = "0.52"
 
 [build-dependencies]
 slint-build = "1.7"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true

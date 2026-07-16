@@ -1139,7 +1139,16 @@ fn start_playback(
                 break;
             }
             if let Ok(status) = vlc::query_status(port, &password) {
-                last_status = status;
+                // Once a video plays all the way through, VLC doesn't close -
+                // it just goes idle and starts reporting length=0 (nothing's
+                // loaded anymore). If we kept overwriting last_status with
+                // that, a fully-watched episode would look "unplayed" by the
+                // time the user actually closes VLC. So we only accept a new
+                // reading while something's actually loaded, and just hang
+                // onto the last real one otherwise.
+                if status.length_seconds > 0 {
+                    last_status = status;
+                }
             }
         }
 

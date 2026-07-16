@@ -660,10 +660,20 @@ component DetailPane inherits Rectangle {
                     }
                 }
 
-                Text {
-                    text: Backend.detail-description != "" ? Backend.detail-description : "\n";
-                    color: #cccccc;
-                    wrap: word-wrap;
+                ScrollView {
+                    min-height: 40px;
+                    max-height: 40px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        Rectangle {
+                            Text {
+                                width: 100%;
+                                text: Backend.detail-description != "" ? Backend.detail-description : "\n";
+                                color: #cccccc;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
                 }
 
                 if Backend.detail-kind == "movie": VerticalLayout {
@@ -1212,6 +1222,15 @@ component SettingsDialog inherits ModalCard {
             }
             HorizontalLayout {
                 Button { text: "Check all links"; clicked => { Backend.check-all-links(); } }
+            }
+            Rectangle {
+                height: 1px;
+            }
+            HorizontalLayout {
+                Text {
+                    text: "Programmer: Amir M. Joshaghani";
+                    color: #888888;
+                }
             }
 
             if Backend.status-text != "": Text {
