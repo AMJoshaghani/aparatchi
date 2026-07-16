@@ -4,9 +4,9 @@ A desktop app (Rust + Slint) to track the movies/series you watch, play them in
 VLC, and resume exactly where you left off.
 
 ## Screenshot
-![main page](https://s6.imgcdn.dev/YFB6AM.png)
-![series page](https://s6.imgcdn.dev/YFBwy0.png)
-![adding page](https://s6.imgcdn.dev/YFBMXd.png)
+![main page](https://s6.imgcdn.dev/YFdaFV.png)
+![series page](https://s6.imgcdn.dev/YFd70o.png)
+![adding page](https://s6.imgcdn.dev/YFdrTg.png)
 
 
 ## Features
@@ -78,4 +78,4 @@ src/models.rs           # Entry / Episode / EntryKind types
 ```
 
 ## Disclaimer!
-This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such.
+This project does not support or endorse any kind of piracy, and the developer doesn't mean for it to be used as such. The links and examples in the screenshots are fabricated.
