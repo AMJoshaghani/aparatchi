@@ -146,6 +146,10 @@ export global Backend {
     in-out property <bool> settings-dialog-open: false;
     in-out property <string> settings-vlc-path: "";
     in-out property <string> settings-subtitle-lang: "";
+    in-out property <string> settings-mpv-path: "";
+    in-out property <string> settings-player: "vlc";
+    callback browse-settings-mpv();
+    callback detect-settings-mpv();
     callback open-settings-dialog();
     callback close-settings-dialog();
     callback browse-settings-vlc();
@@ -839,7 +843,7 @@ component DetailPane inherits Rectangle {
 
             Rectangle { vertical-stretch: 1; }
 
-            HorizontalLayout {
+            if !Backend.bulk-select-mode: HorizontalLayout {
                 alignment: end;
                 spacing: 10px;
                 Button {
@@ -1058,6 +1062,7 @@ component ConfirmDialog inherits ModalCard {
     ScrollView {
         vertical-stretch: 1;
         Text {
+            width: parent.width;
             text: Backend.confirm-message;
             color: white;
             wrap: word-wrap;
@@ -1183,6 +1188,21 @@ component SettingsDialog inherits ModalCard {
         VerticalLayout {
             spacing: 10px;
 
+            Text { text: "Player"; color: #aaaaaa; font-size: 12px; }
+            HorizontalLayout {
+                spacing: 6px;
+                Button {
+                    text: "VLC";
+                    primary: Backend.settings-player != "mpv";
+                    clicked => { Backend.settings-player = "vlc"; }
+                }
+                Button {
+                    text: "mpv";
+                    primary: Backend.settings-player == "mpv";
+                    clicked => { Backend.settings-player = "mpv"; }
+                }
+            }
+
             Text { text: "VLC binary"; color: #aaaaaa; font-size: 12px; }
             Text {
                 text: "Path to the VLC executable used for playback. Program auto-detects on startup.";
@@ -1199,9 +1219,25 @@ component SettingsDialog inherits ModalCard {
                 Button { text: "Detect automatically"; clicked => { Backend.detect-settings-vlc(); } }
             }
 
+            Text { text: "mpv binary"; color: #aaaaaa; font-size: 12px; }
+            Text {
+                text: "Path to the mpv executable, used when mpv is the selected player.";
+                color: #888888;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                LineEdit { text <=> Backend.settings-mpv-path; horizontal-stretch: 1; placeholder-text: "mpv"; }
+                Button { text: "Browse"; clicked => { Backend.browse-settings-mpv(); } }
+            }
+            HorizontalLayout {
+                Button { text: "Detect automatically"; clicked => { Backend.detect-settings-mpv(); } }
+            }
+
             Text { text: "Preferred subtitle language"; color: #aaaaaa; font-size: 12px; }
             Text {
-                text: "Optional language code (e.g. \"eng\", \"fas\") passed to VLC as --sub-language. Leave blank to let VLC decide as usual.";
+                text: "Optional language code (e.g. \"eng\", \"fas\") passed to the player (VLC --sub-language / mpv --slang). Leave blank to let the player decide as usual.";
                 color: #888888;
                 font-size: 11px;
                 wrap: word-wrap;

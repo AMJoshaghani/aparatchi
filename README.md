@@ -1,7 +1,7 @@
 # Aparatchi (Movie & Series Manager)
 
 A desktop app (Rust + Slint) to track the movies/series you watch, play them in
-VLC, and resume exactly where you left off.
+VLC or mpv, and resume exactly where you left off.
 
 ## Screenshot
 ![main page](https://s6.imgcdn.dev/YFdaFV.png)
@@ -40,6 +40,18 @@ Using VLC accounts for the multiplatform fragility across Linux/Windows/Mac and 
 This means resume works even if the user just closes the VLC window. No
 special shutdown handling required.
 
+## Using mpv instead of VLC
+
+In **Settings**, pick *mpv* as the player (and set/auto-detect the mpv binary).
+mpv is launched with `--input-ipc-server`, and the app polls `time-pos` and
+`duration` over that JSON IPC socket (a Unix socket on Linux/macOS, a named
+pipe on Windows). Resume, finished-detection and saving work exactly as with VLC.
+
+## Links with spaces
+
+Remote links (`scheme://...`) are saved with spaces as `%20`, so players can
+open them. Local file paths are left untouched. Existing links are fixed on startup.
+
 ## Requirements to build & run
 
 - Rust (`rustup` is easiest)
@@ -73,6 +85,7 @@ ui/icon.png             # icon used for program window
 src/main.rs             # wires UI callbacks to db/vlc logic
 src/db.rs               # SQLite schema + CRUD (rusqlite)
 src/vlc.rs              # launches VLC, polls its HTTP interface for status
+src/mpv.rs              # launches mpv, polls its IPC socket for status
 src/pattern.rs          # "*" pattern expansion + link/file verification
 src/models.rs           # Entry / Episode / EntryKind types
 ```

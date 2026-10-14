@@ -5,6 +5,7 @@
 mod db;
 mod models;
 mod pattern;
+mod mpv;
 mod vlc;
 
 use models::{EntryKind, Episode};
@@ -31,6 +32,24 @@ fn resolve_vlc_path(conn: &Connection) -> String {
         }
     }
     vlc::detect_vlc().unwrap_or_else(|| vlc::default_binary_name().to_string())
+}
+
+// Which player the user picked in Settings: "vlc" (default) or "mpv".
+fn resolve_player(conn: &Connection) -> String {
+    match db::get_player(conn).ok().flatten().as_deref() {
+        Some("mpv") => "mpv".to_string(),
+        _ => "vlc".to_string(),
+    }
+}
+
+// Same idea as resolve_vlc_path, for mpv.
+fn resolve_mpv_path(conn: &Connection) -> String {
+    if let Ok(Some(p)) = db::get_mpv_path(conn) {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    mpv::detect_mpv().unwrap_or_else(|| mpv::default_binary_name().to_string())
 }
 
 // Whatever subtitle language the user asked for in Settings ("eng", "fas"),
@@ -166,7 +185,7 @@ impl PlaybackTarget {
 struct AppState {
     conn: Mutex<Connection>,
     selected: Mutex<Selection>,
-    vlc: Mutex<Option<vlc::VlcSession>>,
+    vlc: Mutex<Option<vlc::PlayerSession>>,
     pending_delete: Mutex<Option<DeleteTarget>>,
     pending_edit: Mutex<Option<EditTarget>>,
     /// Which episode ids are ticked while the timeline's in bulk-select mode.
@@ -650,6 +669,31 @@ fn main() -> anyhow::Result<()> {
     }
     {
         let ui_weak = ui.as_weak();
+        backend.on_browse_settings_mpv(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    ui.global::<Backend>().set_settings_mpv_path(path.display().to_string().into());
+                }
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        backend.on_detect_settings_mpv(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let b = ui.global::<Backend>();
+                match mpv::detect_mpv() {
+                    Some(p) => {
+                        b.set_settings_mpv_path(p.into());
+                        b.set_status_text("Found mpv automatically.".into());
+                    }
+                    None => b.set_status_text("Could not find mpv automatically. Browse for it manually.".into()),
+                }
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
         backend.on_detect_settings_vlc(move || {
             if let Some(ui) = ui_weak.upgrade() {
                 let b = ui.global::<Backend>();
@@ -975,7 +1019,8 @@ fn do_play(app: &Arc<AppState>, ui: &MainWindow, resume: bool) {
             Selection::None => {}
         }
     }
-    let vlc_path = resolve_vlc_path(&conn);
+    let player = resolve_player(&conn);
+    let vlc_path = if player == "mpv" { resolve_mpv_path(&conn) } else { resolve_vlc_path(&conn) };
     let subtitle_lang = resolve_subtitle_lang(&conn);
     drop(conn);
 
@@ -985,7 +1030,7 @@ fn do_play(app: &Arc<AppState>, ui: &MainWindow, resume: bool) {
         return;
     }
     let start = if resume { resume_pos } else { 0 };
-    start_playback(app.clone(), ui.as_weak(), target, start, vlc_path, subtitle_lang);
+    start_playback(app.clone(), ui.as_weak(), target, start, player, vlc_path, subtitle_lang);
 }
 
 // This is what the "Resume" button up in the entry header does. It's
@@ -1108,22 +1153,31 @@ fn start_playback(
     ui_weak: slint::Weak<MainWindow>,
     target: PlaybackTarget,
     start_seconds: i64,
+    player: String,
     vlc_path: String,
     subtitle_lang: String,
 ) {
-    set_status_from_thread(&ui_weak, "Launching VLC...".to_string());
+    let is_mpv = player == "mpv";
+    let name = if is_mpv { "mpv" } else { "VLC" };
+    set_status_from_thread(&ui_weak, format!("Launching {name}..."));
     thread::spawn(move || {
-        let session = match vlc::launch(&vlc_path, target.link(), start_seconds, &subtitle_lang) {
+        let launched = if is_mpv {
+            mpv::launch(&vlc_path, target.link(), start_seconds, &subtitle_lang)
+        } else {
+            vlc::launch(&vlc_path, target.link(), start_seconds, &subtitle_lang)
+        };
+        let session = match launched {
             Ok(s) => s,
             Err(e) => {
-                set_status_from_thread(&ui_weak, format!("Failed to launch VLC: {e}"));
+                set_status_from_thread(&ui_weak, format!("Failed to launch {name}: {e}"));
                 return;
             }
         };
         let port = session.port;
         let password = session.password.clone();
+        let ipc = session.ipc.clone();
         *app.vlc.lock().unwrap() = Some(session);
-        set_status_from_thread(&ui_weak, "Playing in VLC...".to_string());
+        set_status_from_thread(&ui_weak, format!("Playing in {name}..."));
 
         let mut last_status = vlc::Status::default();
         loop {
@@ -1138,7 +1192,11 @@ fn start_playback(
             if exited {
                 break;
             }
-            if let Ok(status) = vlc::query_status(port, &password) {
+            let polled = match &ipc {
+                Some(path) => mpv::query_status(path),
+                None => vlc::query_status(port, &password),
+            };
+            if let Ok(status) = polled {
                 // Once a video plays all the way through, VLC doesn't close -
                 // it just goes idle and starts reporting length=0 (nothing's
                 // loaded anymore). If we kept overwriting last_status with
@@ -1175,6 +1233,9 @@ fn start_playback(
             }
         }
         *app.vlc.lock().unwrap() = None;
+        if let Some(path) = &ipc {
+            mpv::cleanup(path);
+        }
 
         let msg = if finished { "Finished. Moved to the next episode.".to_string() } else { "Stopped. Progress saved.".to_string() };
         set_status_from_thread(&ui_weak, msg);
@@ -1927,10 +1988,14 @@ fn open_settings_dialog(app: &Arc<AppState>, ui: &MainWindow) {
     let conn = app.conn.lock().unwrap();
     let path = db::get_vlc_path(&conn).ok().flatten().unwrap_or_default();
     let subtitle_lang = db::get_subtitle_lang(&conn).ok().flatten().unwrap_or_default();
+    let mpv_path = db::get_mpv_path(&conn).ok().flatten().unwrap_or_default();
+    let player = resolve_player(&conn);
     drop(conn);
 
     let b = ui.global::<Backend>();
     b.set_settings_vlc_path(path.into());
+    b.set_settings_mpv_path(mpv_path.into());
+    b.set_settings_player(player.into());
     b.set_settings_subtitle_lang(subtitle_lang.into());
     b.set_status_text("".into());
     b.set_settings_dialog_open(true);
@@ -1942,7 +2007,12 @@ fn submit_settings(app: &Arc<AppState>, ui: &MainWindow) {
     let subtitle_lang = b.get_settings_subtitle_lang().to_string();
 
     let conn = app.conn.lock().unwrap();
-    let result = db::set_vlc_path(&conn, &path).and_then(|_| db::set_subtitle_lang(&conn, &subtitle_lang));
+    let mpv_path = b.get_settings_mpv_path().to_string();
+    let player = if b.get_settings_player() == "mpv" { "mpv" } else { "vlc" };
+    let result = db::set_vlc_path(&conn, &path)
+        .and_then(|_| db::set_mpv_path(&conn, &mpv_path))
+        .and_then(|_| db::set_player(&conn, player))
+        .and_then(|_| db::set_subtitle_lang(&conn, &subtitle_lang));
     drop(conn);
 
     match result {

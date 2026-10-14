@@ -14,10 +14,13 @@ use std::path::Path;
 use std::process::{Child, Command};
 use std::time::Duration;
 
-pub struct VlcSession {
+/// A running external player (VLC or mpv). VLC is polled over HTTP using
+/// `port`/`password`; mpv is polled over its IPC socket at `ipc`.
+pub struct PlayerSession {
     pub child: Child,
     pub port: u16,
     pub password: String,
+    pub ipc: Option<String>,
 }
 
 const VLC_USER: &str = ""; // VLC's http interface uses an empty username
@@ -134,7 +137,7 @@ fn detect_vlc_unix() -> Option<String> {
 // `default_binary_name` and lets the OS find it on PATH. `subtitle_lang` is
 // an optional language code like "eng"; leave it empty to let VLC decide on
 // its own. Returns a handle you can poll or wait on.
-pub fn launch(vlc_path: &str, target: &str, start_seconds: i64, subtitle_lang: &str) -> Result<VlcSession> {
+pub fn launch(vlc_path: &str, target: &str, start_seconds: i64, subtitle_lang: &str) -> Result<PlayerSession> {
     let port = random_port();
     let password = random_password();
     let binary = if vlc_path.trim().is_empty() { default_binary_name() } else { vlc_path };
@@ -157,7 +160,7 @@ pub fn launch(vlc_path: &str, target: &str, start_seconds: i64, subtitle_lang: &
         .spawn()
         .map_err(|e| anyhow!("failed to launch '{binary}': {e}. Set the correct VLC path in Settings."))?;
 
-    Ok(VlcSession { child, port, password })
+    Ok(PlayerSession { child, port, password, ipc: None })
 }
 
 #[derive(Debug, Clone, Copy, Default)]

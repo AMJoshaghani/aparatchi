@@ -1,8 +1,8 @@
 [package]
 name = "aparatchi"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
-description = "Local movie/series watchlist manager with VLC playback & resume support"
+description = "Local movie/series watchlist manager with VLC or mpv playback & resume support"
 authors = ["Amir M. Joshaghani"]
 
 [[bin]]
@@ -46,3 +46,7 @@ slint-build = "1.7"
 opt-level = "z"
 lto = true
 strip = true
+
+[package.metadata.appimage]
+icon = "ui/icon.png"
+desktop_entry = "aparatchi.desktop"

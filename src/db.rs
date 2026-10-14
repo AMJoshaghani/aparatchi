@@ -62,7 +62,43 @@ pub fn open() -> Result<Connection> {
     ensure_column(&conn, "episodes", "finished", "finished INTEGER NOT NULL DEFAULT 0")?;
     // Needed for the "Recently watched" sort option.
     ensure_column(&conn, "entries", "last_watched_at", "last_watched_at INTEGER NOT NULL DEFAULT 0")?;
+    fix_existing_links(&conn)?;
     Ok(conn)
+}
+
+// URLs can't contain raw spaces: VLC (and mpv) fail to open them. So any
+// remote link (anything with a "scheme://" prefix) is saved with spaces as
+// %20. Local file paths are left alone, since a space is perfectly valid
+// there and %20 would point at a file that doesn't exist.
+pub fn normalize_link(link: &str) -> String {
+    let trimmed = link.trim();
+    if trimmed.contains("://") {
+        trimmed.replace(' ', "%20")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+// One-time-per-startup fix for links saved before normalize_link existed.
+fn fix_existing_links(conn: &Connection) -> Result<()> {
+    for table in ["entries", "episodes"] {
+        let rows: Vec<(i64, String)> = {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT id, link_or_path FROM {table} WHERE link_or_path LIKE '%://%' AND link_or_path LIKE '% %'"
+            ))?;
+            let r = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            r
+        };
+        for (id, link) in rows {
+            conn.execute(
+                &format!("UPDATE {table} SET link_or_path = ?2 WHERE id = ?1"),
+                params![id, normalize_link(&link)],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, add_column_ddl: &str) -> Result<()> {
@@ -140,6 +176,37 @@ pub fn set_vlc_path(conn: &Connection, path: &str) -> Result<()> {
     Ok(())
 }
 
+// Which external player to use: "vlc" (default) or "mpv".
+pub fn get_player(conn: &Connection) -> Result<Option<String>> {
+    Ok(conn
+        .query_row("SELECT value FROM settings WHERE key = 'player'", [], |r| r.get(0))
+        .optional()?)
+}
+
+pub fn set_player(conn: &Connection, player: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('player', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![player],
+    )?;
+    Ok(())
+}
+
+pub fn get_mpv_path(conn: &Connection) -> Result<Option<String>> {
+    Ok(conn
+        .query_row("SELECT value FROM settings WHERE key = 'mpv_path'", [], |r| r.get(0))
+        .optional()?)
+}
+
+pub fn set_mpv_path(conn: &Connection, path: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('mpv_path', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![path],
+    )?;
+    Ok(())
+}
+
 // The subtitle language the user prefers ("eng", "fas", whatever), which
 // gets passed to VLC via `--sub-language`. Empty/`None` just means we
 // don't ask VLC for anything specific.
@@ -209,7 +276,7 @@ pub fn insert_entry(
 ) -> Result<i64> {
     conn.execute(
         "INSERT INTO entries (title, kind, description, link_or_path) VALUES (?1, ?2, ?3, ?4)",
-        params![title, kind.as_str(), description, link_or_path],
+        params![title, kind.as_str(), description, normalize_link(link_or_path)],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -223,7 +290,7 @@ pub fn update_entry(
 ) -> Result<()> {
     conn.execute(
         "UPDATE entries SET title = ?2, description = ?3, link_or_path = ?4 WHERE id = ?1",
-        params![id, title, description, link_or_path],
+        params![id, title, description, normalize_link(link_or_path)],
     )?;
     Ok(())
 }
@@ -323,7 +390,7 @@ pub fn insert_episode(
 ) -> Result<i64> {
     conn.execute(
         "INSERT INTO episodes (entry_id, season, episode, title, description, link_or_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![entry_id, season, episode, title, description, link_or_path],
+        params![entry_id, season, episode, title, description, normalize_link(link_or_path)],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -331,7 +398,7 @@ pub fn insert_episode(
 pub fn update_episode(conn: &Connection, id: i64, title: &str, description: &str, link_or_path: &str) -> Result<()> {
     conn.execute(
         "UPDATE episodes SET title = ?2, description = ?3, link_or_path = ?4 WHERE id = ?1",
-        params![id, title, description, link_or_path],
+        params![id, title, description, normalize_link(link_or_path)],
     )?;
     Ok(())
 }
