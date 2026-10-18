@@ -39,18 +39,6 @@ Using VLC accounts for the multiplatform fragility across Linux/Windows/Mac and 
 This means resume works even if the user just closes the VLC window. No
 special shutdown handling required.
 
-## Using mpv instead of VLC
-
-In **Settings**, pick *mpv* as the player (and set/auto-detect the mpv binary).
-mpv is launched with `--input-ipc-server`, and the app polls `time-pos` and
-`duration` over that JSON IPC socket (a Unix socket on Linux/macOS, a named
-pipe on Windows). Resume, finished-detection and saving work exactly as with VLC.
-
-## Links with spaces
-
-Remote links (`scheme://...`) are saved with spaces as `%20`, so players can
-open them. Local file paths are left untouched. Existing links are fixed on startup.
-
 ## Requirements to build & run
 
 - Rust (`rustup` is easiest)
